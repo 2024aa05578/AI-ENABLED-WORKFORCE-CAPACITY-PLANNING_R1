@@ -5,7 +5,7 @@ import joblib
 
 # Load historical data
 
-df = pd.read_csv('data/historical_workorders.csv')
+df = pd.read_csv('historical_workorders.csv')
 
 # Prepare data for Prophet
 forecast_df = df.groupby('Date')['WorkOrders'].sum().reset_index()
