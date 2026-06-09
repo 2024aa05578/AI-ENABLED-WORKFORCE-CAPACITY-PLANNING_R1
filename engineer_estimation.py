@@ -3,8 +3,8 @@ import pandas as pd
 
 # Load data
 
-workorders = pd.read_csv('data/historical_workorders.csv')
-pipeline = pd.read_csv('data/business_pipeline.csv')
+workorders = pd.read_csv('historical_workorders.csv')
+pipeline = pd.read_csv('business_pipeline.csv')
 
 # Business assumptions
 AVG_WORKORDERS_PER_ENGINEER = 18
