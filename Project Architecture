@@ -1,0 +1,18 @@
+
+GitHub Repository
+│
+├── data/
+│   ├── historical_workorders.csv
+│   ├── engineer_master.csv
+│   ├── location_master.csv
+│   └── business_pipeline.csv
+│
+├── models/
+│   ├── forecast_model.pkl
+│   └── utilization_model.pkl
+│
+├── app.py
+├── forecast.py
+├── optimization.py
+├── requirements.txt
+└── README.md
