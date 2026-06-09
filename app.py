@@ -9,7 +9,7 @@ st.title('AI Enabled Workforce & Capacity Planning')
 
 # Load data
 
-df = pd.read_csv('data/historical_workorders.csv')
+df = pd.read_csv('historical_workorders.csv')
 
 # KPI Metrics
 
