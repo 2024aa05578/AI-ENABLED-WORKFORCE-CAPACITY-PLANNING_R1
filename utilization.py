@@ -3,7 +3,7 @@ import pandas as pd
 
 # Load data
 
-df = pd.read_csv('data/historical_workorders.csv')
+df = pd.read_csv('historical_workorders.csv')
 
 # Productivity assumptions
 AVAILABLE_HOURS_PER_MONTH = 160
