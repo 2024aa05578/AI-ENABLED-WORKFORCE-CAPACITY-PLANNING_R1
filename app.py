@@ -6,8 +6,6 @@ from sklearn.linear_model import LinearRegression
 import plotly.express as px
 import plotly.graph_objects as go
 
-
-
 # -------------------------------------------------------------------------
 # 1. PAGE SETUP & CONFIGURATION
 # -------------------------------------------------------------------------
@@ -151,13 +149,20 @@ with tab1:
     fig_overview = go.Figure()
     fig_overview.add_trace(go.Scatter(x=hist_df['Month'], y=hist_df['Total_Workload'], name='Historical Workload', line=dict(color='#1f77b4', width=3)))
     fig_overview.add_trace(go.Scatter(x=forecast_df['Month'], y=forecast_df['Predicted_Total_Workload'], name='AI Forecasted Workload', line=dict(color='#3DCD58', width=3, dash='dash')))
-
+    
+    # CORRECTED LAYOUT BLOCK (No legend_placement parameter)
     fig_overview.update_layout(
         title="Consolidated Workload Lifecycle (Historical vs Prediction Window)",
-        xaxis_title="Timeline", yaxis_title="Monthly Tickets / Incidents",
-        legend_placement="top" # <--- This is the culprit
+        xaxis_title="Timeline", 
+        yaxis_title="Monthly Tickets / Incidents",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
     )
-
     st.plotly_chart(fig_overview, use_container_width=True)
 
 # --- TAB 2: DEMAND FORECASTING ENGINE ---
