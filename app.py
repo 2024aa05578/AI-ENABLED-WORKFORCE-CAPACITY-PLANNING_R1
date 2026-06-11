@@ -1,237 +1,110 @@
+# app.py
 import streamlit as st
 import pandas as pd
-import numpy as np
-import datetime
-from sklearn.linear_model import LinearRegression
 import plotly.express as px
-import plotly.graph_objects as go
+from engines import WorkforceCapacityEngine
 
-# -------------------------------------------------------------------------
-# 1. PAGE SETUP & CONFIGURATION
-# -------------------------------------------------------------------------
-st.set_page_config(
-    page_title="Schneider Electric AI Workforce Planner",
-    layout="wide",
-    initial_sidebar_state="expanded"
+# Initialize system views and configuration
+st.set_page_config(page_title="Schneider Electric Workforce AI", layout="wide", page_icon="⚡")
+
+st.title("⚡ AI-Enabled Workforce & Capacity Planning Engine")
+st.markdown("### Schneider Electric India Services Automation — Capstone Analytics Interface")
+st.caption("Developed by Satish Kumar Pathak (BITS Pilani ID: 2025AA05578)")
+
+# Interactive Sidebar for Operational Variables
+st.sidebar.header("🔧 Baseline Operational Parameters")
+annual_operational_hours = st.sidebar.slider(
+    "Standard Productive Working Hours/Year per Engineer", 
+    min_value=1500, max_value=2400, value=2000, step=50
 )
+attrition_coefficient = st.sidebar.slider(
+    "National Structural Attrition Rate Buffer (%)", 
+    min_value=0.0, max_value=20.0, value=8.0, step=0.5
+) / 100.0
 
-# Custom Styling for Schneider Electric Brand Vibe (Eco-Green accents)
-st.markdown("""
-    <style>
-    .main-title { font-size:32px; font-weight:bold; color:#3DCD58; margin-bottom:5px; }
-    .subtitle { font-size:16px; color:#555555; margin-bottom:25px; }
-    .metric-box { background-color: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 5px solid #3DCD58; }
-    </style>
-""", unsafe_allow_html=True)
+# Document Upload Handlers
+st.markdown("---")
+col_a, col_b = st.columns(2)
+with col_a:
+    uploaded_work_file = st.file_uploader("Upload Master Workspace File (CSV Format)", type=['csv'])
+with col_b:
+    uploaded_project_file = st.file_uploader("Upload Data Center Project Raw File (CSV Format)", type=['csv'])
 
-st.markdown('<div class="main-title">AI-Enabled Workforce & Capacity Planning</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">M.Tech Final Semester Project - Schneider Electric India Operations</div>', unsafe_allow_html=True)
-st.sidebar.image("https://www.se.com/assets/images/logo/schneider-electric-logo.svg", width=180)
-st.sidebar.markdown("## Control Panel")
+# Static Growth Mapping Dictionary matching your workbook structure
+growth_matrix = {
+    'SP UPS': {'North': 0.20, 'West': 0.35, 'South': 0.22, 'East': 0.15},
+    'SP Cooling': {'North': 0.20, 'West': 0.35, 'South': 0.22, 'East': 0.15},
+    'Power Products': {'North': 0.15, 'West': 0.30, 'South': 0.20, 'East': 0.15},
+    'Power System': {'North': 0.15, 'West': 0.30, 'South': 0.20, 'East': 0.20},
+    'Industiral Automation': {'North': 0.15, 'West': 0.30, 'South': 0.20, 'East': 0.15}
+}
 
-# -------------------------------------------------------------------------
-# 2. DATA LAYER (MOCK DATA GENERATION / IN-MEMORY DATABASE)
-# -------------------------------------------------------------------------
-@st.cache_data
-def generate_historical_data():
-    """Generates 36 months of historical workload, Installed Base (IB) data, and DC impacts."""
-    dates = pd.date_range(start="2023-01-01", end="2026-05-01", freq="MS")
-    np.random.seed(42)
+if uploaded_work_file and uploaded_project_file:
+    # Initialize Engine pipelines using uploaded file contexts
+    engine = WorkforceCapacityEngine(uploaded_work_file, uploaded_project_file)
     
-    # Core variables
-    bau_tickets = [150 + i*2 + np.random.randint(-15, 15) for i in range(len(dates))]
-    dc_tickets = [10 + int(i**1.5) + np.random.randint(-5, 5) for i in range(len(dates))]
-    installed_base_mw = [500 + i*15 for i in range(len(dates))]
+    with st.spinner("Processing optimization matrices..."):
+        df_raw_projects = engine.load_clean_data()
+        df_proj_demand = engine.extract_project_demand()
+        df_optimization = engine.optimize_allocations(growth_matrix, standard_capacity=annual_operational_hours)
     
-    df = pd.DataFrame({
-        "Month": dates,
-        "BAU_Workload": bau_tickets,
-        "DataCenter_Workload": dc_tickets,
-        "Installed_Base_MW": installed_base_mw
-    })
-    df["Total_Workload"] = df["BAU_Workload"] + df["DataCenter_Workload"]
-    return df
-
-hist_df = generate_historical_data()
-
-# Current Workforce Data Matrix
-initial_workforce = pd.DataFrame([
-    {"Location": "Bangalore", "Current_Engineers": 14, "Avg_Utilization": 0.88, "Skills": "DC Expert"},
-    {"Location": "Chennai", "Current_Engineers": 10, "Avg_Utilization": 0.72, "Skills": "Industrial Automation"},
-    {"Location": "Hyderabad", "Current_Engineers": 8, "Avg_Utilization": 0.65, "Skills": "Power Management"},
-    {"Location": "Mumbai", "Current_Engineers": 12, "Avg_Utilization": 0.82, "Skills": "DC Expert"},
-    {"Location": "Delhi NCR", "Current_Engineers": 11, "Avg_Utilization": 0.78, "Skills": "Power Management"}
-])
-
-# Initialize session states to track live adjustments
-if "workforce_db" not in st.session_state:
-    st.session_state.workforce_db = initial_workforce.copy()
-
-# -------------------------------------------------------------------------
-# 3. SIDEBAR CONTROLS & BUSINESS INPUTS
-# -------------------------------------------------------------------------
-st.sidebar.header("Scenario Constraints")
-capacity_per_engineer = st.sidebar.slider(
-    "Engineer Capacity (Tickets/Month)", 
-    min_value=10, max_value=30, value=15, step=1
-)
-dc_growth_multiplier = st.sidebar.slider(
-    "Data Center Demand Multiplier (Market Surge)", 
-    min_value=1.0, max_value=3.0, value=1.5, step=0.1
-)
-forecast_horizon = st.sidebar.selectbox("Forecast Window", [6, 12, 18, 24], index=1)
-
-# -------------------------------------------------------------------------
-# 4. PREDICTIVE ENGINE (AI MODELING)
-# -------------------------------------------------------------------------
-# Prepare features for simple regression (Trend tracking over time indices)
-hist_df['Time_Index'] = np.arange(len(hist_df))
-
-X = hist_df[['Time_Index']]
-y_bau = hist_df['BAU_Workload']
-y_dc = hist_df['DataCenter_Workload']
-
-# Fit AI/Regression models
-model_bau = LinearRegression().fit(X, y_bau)
-model_dc = LinearRegression().fit(X, y_dc)
-
-# Future Forecasting
-future_indices = np.arange(len(hist_df), len(hist_df) + forecast_horizon)
-future_dates = pd.date_range(
-    start=hist_df['Month'].max() + pd.DateOffset(months=1), 
-    periods=forecast_horizon, freq="MS"
-)
-
-pred_bau = model_bau.predict(future_indices.reshape(-1, 1))
-pred_dc = model_dc.predict(future_indices.reshape(-1, 1)) * dc_growth_multiplier
-
-forecast_df = pd.DataFrame({
-    "Month": future_dates,
-    "Predicted_BAU": np.maximum(0, pred_bau),
-    "Predicted_DC": np.maximum(0, pred_dc)
-})
-forecast_df["Predicted_Total_Workload"] = forecast_df["Predicted_BAU"] + forecast_df["Predicted_DC"]
-forecast_df["Required_Workforce"] = np.ceil(forecast_df["Predicted_Total_Workload"] / capacity_per_engineer).astype(int)
-
-# -------------------------------------------------------------------------
-# 5. TABS INTERFACE (UX Workflow)
-# -------------------------------------------------------------------------
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📊 Executive Dashboard", 
-    "📈 Demand Forecasting Engine", 
-    "🎯 Resource Optimization", 
-    "⚙️ Workforce Database"
-])
-
-# --- TAB 1: EXECUTIVE DASHBOARD ---
-with tab1:
-    st.subheader("Operations Overview")
+    # Dashboard KPI Cards
+    st.markdown("### 📊 Operational Headcount Summary Metrics")
+    kpi1, kpi2, kpi3 = st.columns(3)
     
-    # KPIs Top Rows
-    c1, c2, c3, c4 = st.columns(4)
-    total_current_staff = st.session_state.workforce_db["Current_Engineers"].sum()
-    avg_system_util = st.session_state.workforce_db["Avg_Utilization"].mean() * 100
-    peak_future_staff = forecast_df["Required_Workforce"].max()
-    hiring_gap = max(0, peak_future_staff - total_current_staff)
+    total_pm_hours = df_raw_projects['Per Year Hrs required for PM'].sum()
+    total_startup_hours = df_raw_projects['Total Starup Man Hrs required'].sum()
+    aggregate_se_needed = (total_pm_hours + total_startup_hours) / annual_operational_hours
     
-    with c1:
-        st.markdown(f"<div class='metric-box'><b>Current Active Engineers</b><h2>{total_current_staff}</h2></div>", unsafe_allow_html=True)
-    with c2:
-        st.markdown(f"<div class='metric-box'><b>Average System Utilization</b><h2>{avg_system_util:.1f}%</h2></div>", unsafe_allow_html=True)
-    with c3:
-        st.markdown(f"<div class='metric-box'><b>Peak Required Engineers</b><h2>{peak_future_staff}</h2></div>", unsafe_allow_html=True)
-    with c4:
-        st.markdown(f"<div class='metric-box'><b>Net Resource Gap</b><h2>{hiring_gap} Engineers</h2></div>", unsafe_allow_html=True)
-        
-    st.write("")
+    with kpi1:
+        st.metric(label="Aggregated Data Center Pipeline Volume (MINR)", 
+                  value=f"{df_raw_projects['Value in MINR'].dropna().sum():,.2f}")
+    with kpi2:
+        st.metric(label="Total Workload Hours Identified (PM + Startup)", 
+                  value=f"{int(total_pm_hours + total_startup_hours):,}")
+    with kpi3:
+        st.metric(label="Net Data Center Technical Headcount Needed", 
+                  value=f"{aggregate_se_needed:.2f} FTE")
+
+    # Layout Data Visualizations
+    st.markdown("---")
+    tab1, tab2, tab3 = st.tabs(["📊 Regional Load Analytics", "🗺️ Strategic Location Optimization", "📋 Structured Project Datasets"])
     
-    # Primary Dashboard Visualization
-    fig_overview = go.Figure()
-    fig_overview.add_trace(go.Scatter(x=hist_df['Month'], y=hist_df['Total_Workload'], name='Historical Workload', line=dict(color='#1f77b4', width=3)))
-    fig_overview.add_trace(go.Scatter(x=forecast_df['Month'], y=forecast_df['Predicted_Total_Workload'], name='AI Forecasted Workload', line=dict(color='#3DCD58', width=3, dash='dash')))
-    
-    # CORRECTED LAYOUT BLOCK (No legend_placement parameter)
-    fig_overview.update_layout(
-        title="Consolidated Workload Lifecycle (Historical vs Prediction Window)",
-        xaxis_title="Timeline", 
-        yaxis_title="Monthly Tickets / Incidents",
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
+    with tab1:
+        st.subheader("Workload Burden Profiling across Regions & Asset Portfolios")
+        fig = px.bar(
+            df_proj_demand, 
+            x='Region', 
+            y='Total Headcount Needed', 
+            color='Product Type',
+            title="Incremental Field Engineers (FTE) Needed by Tech Domain",
+            barmode='group',
+            template='plotly_white'
         )
-    )
-    st.plotly_chart(fig_overview, use_container_width=True)
-
-# --- TAB 2: DEMAND FORECASTING ENGINE ---
-with tab2:
-    st.subheader("Data Center Explosion vs BAU Growth Vectors")
-    
-    col_f1, col_f2 = st.columns([3, 1])
-    
-    with col_f1:
-        fig_split = go.Figure()
-        fig_split.add_trace(go.Bar(x=forecast_df['Month'], y=forecast_df['Predicted_BAU'], name='Forecasted Business-As-Usual', marker_color='#A3E4D7'))
-        fig_split.add_trace(go.Bar(x=forecast_df['Month'], y=forecast_df['Predicted_DC'], name='Forecasted Data Center Surge', marker_color='#239B56'))
-        fig_split.update_layout(barmode='stack', title="Stacked Demand Growth Vector", xaxis_title="Month", yaxis_title="Load Profile")
-        st.plotly_chart(fig_split, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
         
-    with col_f2:
-        st.markdown("#### Forecast Summary Data")
-        display_forecast = forecast_df.copy()
-        display_forecast['Month'] = display_forecast['Month'].dt.strftime('%b %Y')
-        st.dataframe(
-            display_forecast[['Month', 'Predicted_Total_Workload', 'Required_Workforce']].rename(
-                columns={"Predicted_Total_Workload": "Total Load Forecast", "Required_Workforce": "Target Staff Count"}
-            ), height=350
+    with tab2:
+        st.subheader("AI Optimization Model: Regional Headquarters Location Guidance")
+        st.dataframe(df_optimization, use_container_width=True)
+        
+        # Actionable insight for the South Region hub
+        st.info(
+            "💡 **Strategic Operational Insight:** The West and North areas show concentrated growth due to large-scale data center projects. "
+            "To support these high-demand regions, look into shifting underutilized resources from your primary Bangalore hub."
         )
-
-# --- TAB 3: RESOURCE OPTIMIZATION ---
-with tab3:
-    st.subheader("Location Intelligence & Recommendations")
-    st.info("Optimization Logic: Allocates hiring metrics and matches resources proportional to current local utilization rates and expected regional Industrial/DC asset clusters.")
-    
-    # Simple Heuristic Rule-Based Optimizer Engine
-    opt_df = st.session_state.workforce_db.copy()
-    
-    # Calculating delta based on historical utilization stress
-    opt_df["Stress_Factor"] = opt_df["Avg_Utilization"] / 0.80  # Target threshold baseline at 80%
-    total_stress = opt_df["Stress_Factor"].sum()
-    
-    # Distribute the gaps based on proportional algorithmic allocation rules
-    if hiring_gap > 0:
-        opt_df["Recommended_New_Hires"] = np.round((opt_df["Stress_Factor"] / total_stress) * hiring_gap).astype(int)
-    else:
-        opt_df["Recommended_New_Hires"] = 0
         
-    opt_df["Target_Total_Staff"] = opt_df["Current_Engineers"] + opt_df["Recommended_New_Hires"]
-    
-    # Display Chart
-    fig_opt = px.bar(
-        opt_df, x="Location", y=["Current_Engineers", "Recommended_New_Hires"],
-        title="Optimized Staff Allocation Roadmap per Regional Hub",
-        color_discrete_sequence=["#2E4053", "#3DCD58"]
-    )
-    st.plotly_chart(fig_opt, use_container_width=True)
-    
-    # Recommendations Summary table
-    st.dataframe(opt_df[["Location", "Skills", "Current_Engineers", "Avg_Utilization", "Recommended_New_Hires", "Target_Total_Staff"]], use_container_width=True)
+    with tab3:
+        st.subheader("Raw Data View (Cleaned Major Project Pipeline Data)")
+        st.dataframe(df_raw_projects, use_container_width=True)
 
-# --- TAB 4: WORKFORCE DATABASE SYSTEM ---
-with tab4:
-    st.subheader("Manage Enterprise Asset Records")
-    st.warning("Any data modification below recalibrates the analytical and deployment recommendation engines instantly across all tabs.")
+else:
+    st.warning("⚠️ High-performance execution requires uploading both your operational workspace and project CSV files to begin data aggregation.")
     
-    # Editable Dataframe to update records
-    edited_df = st.data_editor(
-        st.session_state.workforce_db,
-        num_rows="dynamic",
-        key="workforce_editor"
-    )
-    
-    if st.button("Commit Database Matrix Changes"):
-        st.session_state.workforce_db = edited_df
-        st.success("State engine updated successfully!")
-        st.rerun()
+    # Instantiating User Experience Walkthrough Guidance
+    with st.expander("📌 Project Documentation & File Mapping Schema Help"):
+        st.markdown("""
+        ### Document Mapping Alignment Manual:
+        Ensure that your inputs match the structured columns used in your manual planning spreadsheets:
+        1. **Workspace CSV Header Maps:** Must include row classifications matching `Active Install Base`, `Work Orders`, and product definitions.
+        2. **Project Raw Column Maps:** Processes structural columns such as `Region`, `Product Type`, `Per Year Hrs required for PM`, and `Total Starup Man Hrs required`.
+        """)
