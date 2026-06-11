@@ -5,7 +5,7 @@ import datetime
 from sklearn.linear_model import LinearRegression
 import plotly.express as px
 import plotly.graph_objects as go
-Bash
+
 pip install streamlit pandas numpy scikit-learn plotly
 
 # -------------------------------------------------------------------------
