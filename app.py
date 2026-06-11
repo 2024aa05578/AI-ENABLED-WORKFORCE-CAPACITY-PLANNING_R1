@@ -6,7 +6,7 @@ from sklearn.linear_model import LinearRegression
 import plotly.express as px
 import plotly.graph_objects as go
 
-pip install streamlit pandas numpy scikit-learn plotly
+
 
 # -------------------------------------------------------------------------
 # 1. PAGE SETUP & CONFIGURATION
